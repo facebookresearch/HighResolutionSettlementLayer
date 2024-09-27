@@ -1,0 +1,96 @@
+# HRSL Source Data
+
+This repo contains a selection from the training, validation, and test data for
+the [High Resolution Settlement Layer] (https://dataforgood.facebook.com/dfg/tools/high-resolution-population-density-maps)
+dataset. The current data consists of 9869460 data points with location and rater scores.
+
+## Background
+
+To train, validate, test the
+[ResNet](https://en.wikipedia.org/wiki/Residual_neural_network) model
+underlying the HRSL dataset, a large number of images were sent to human raters
+to determine if the image contained a human-made building.  The images were all
+64x64 pixel images from high-resolution Maxar imagery, with an equatorial
+resolution of 50cm x 50cm a pixel. Images
+
+Each rater could vote for one of four options:
+
+1. **True**: The image contains a reasonable fraction of a building. Buildings
+   can be warehouses or other structures that can contain a human, but do not
+   include vehicles, roads, signs, or other structures. Partial structures
+   would qualify if they were at least one quarter of the structure or one
+   quarter of the image. For example, a corner of a house in a corner of the
+   image was not get a True vote.
+2. **False**: The image does not contain a reasonable fraction of a building.
+   That is, it clearly does not satisfy the conditions of a True vote.
+3. **Unsure**: The rater could not determine if there was or was not a building
+   in the image. This could be because the image is blurry, occluded by clouds,
+   or other aspects preventing a positive identification.
+4. **Error**: The image has an artificial artifact from processing, such as
+   being all black or having a substantial portion of the image incomplete.
+
+Each image was rated by at least two raters. If they disagreed, a third
+highly-calibrated rater would break the tie. There are also cases where an
+image would be rated by more than three raters, for example if an image was
+requeued.
+
+For training and testing purposes, we would ignore any images with more than
+one vote for either Unsure or Error, or if the number of True votes equalled
+the number of False votes. Any non-ignored image would be considered a positive
+building-containing images if the True votes was greater than the False votes;
+otherwise it would be considered an image not containing a building.
+
+## Labels
+
+The file `labels.csv.gz` is a Gzip compressed file; to uncompress on unix-like
+systems run
+
+```
+$ gunzip labels.csv.gz
+```
+
+More information about Gzip, including how to decompress on other systems, can
+be found at https://www.gnu.org/software/gzip/ .
+
+This will produce a file `labels.csv`, which is a CSV file with header and the
+following schema:
+
+1. `id`: A unique sequential non-negative integer identifier for the data point.
+2. `quadkey`: A zoom 15 [Bing Tile](https://learn.microsoft.com/en-us/bingmaps/articles/bing-maps-tile-system)
+   quadkey containing the center of the image.
+3. `latitude`: The latitude of the center of the image in the [WGS 84 datum](https://en.wikipedia.org/wiki/World_Geodetic_System).
+4. `longitude`: The longitude of the center of the image in the [WGS 84 datum](https://en.wikipedia.org/wiki/World_Geodetic_System).
+5. `num_true`: Number of true votes, i.e., votes that this image contains a building.
+6. `num_false`: Number of false votes, i.e., votes that this image does not contain a building.
+7. `num_unsure`: Number of unsure votes, i.e., votes that this image is unclear whether it contains a building.
+8. `num_error`: Number of error votes, i.e., votes that this image has an error or image artifact.
+
+This can be processed by any tool that can parse CSV files (of which there are
+many).  For example, in Python one can read this as follows:
+
+```py
+import csv
+with open("labels.csv") as f:
+    reader = csv.DictReader(f)
+    row = next(reader)
+
+    row_id = int(row['id'])
+    latitude = float(row['latitude'])
+    longitude = float(row['longitude'])
+    num_true = int(row['num_true'])
+    num_false = int(row['num_false'])
+    should_skip = (num_true == num_false) or ( int(row['num_unsure']) + int(row['num_error']) > 1 )
+    if should_skip:
+        decision = 'SKIP'
+    elif num_true > num_false:
+        decision = 'BUILDING'
+    else:
+        decision = 'NO_BUILDING'
+    
+    print(f"""Row:
+    Id: {row_id}
+    Location: {latitude} lat {longitude} lon
+    Decision: {decision}
+    """)
+```
+
